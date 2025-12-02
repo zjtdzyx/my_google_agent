@@ -1,5 +1,6 @@
 import os
 import logging
+import sys
 import certifi
 from dotenv import load_dotenv
 
@@ -33,16 +34,60 @@ AGENT_CARD_FULL_URL = f"{SERVICE_URL}{AGENT_CARD_PATH}"
 DEFAULT_MODEL_NAME = "gemini-2.0-flash-lite-preview-02-05"
 
 # 日志配置
-LOG_LEVEL = logging.INFO
-LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+# 允许通过环境变量覆盖，方便调试 (例如: set LOG_LEVEL=DEBUG)
+LOG_LEVEL_STR = os.environ.get("LOG_LEVEL", "INFO").upper()
+LOG_LEVEL = getattr(logging, LOG_LEVEL_STR, logging.INFO)
+LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s:%(lineno)d: %(message)s"
+LOG_FILE = "logger.log"
 
-def setup_logging(logger_name: str) -> logging.Logger:
-    """统一的日志配置函数"""
-    logging.basicConfig(
-        level=LOG_LEVEL,
-        format=LOG_FORMAT,
-        datefmt="%Y-%m-%d %H:%M:%S"
-    )
+def cleanup_logs(log_files: list[str] = None) -> None:
+    """
+    清理旧的日志文件 (对应教程 1.3 节)。
+    在每次启动 Agent 前调用，确保日志干净。
+    """
+    if log_files is None:
+        log_files = ["logger.log", "web.log", "tunnel.log"]
+        
+    for log_file in log_files:
+        if os.path.exists(log_file):
+            try:
+                os.remove(log_file)
+                print(f"🧹 Cleaned up {log_file}")
+            except OSError as e:
+                print(f"⚠️ Failed to clean up {log_file}: {e}")
+
+def setup_logging(logger_name: str = "root", log_to_file: bool = True) -> logging.Logger:
+    """
+    统一的日志配置函数 (Production Ready)。
+    
+    Features:
+    1. 配置 Root Logger，捕获所有库的日志 (包括 google.adk)。
+    2. 同时输出到 Console (方便开发) 和 File (方便追溯)。
+    3. 避免重复添加 Handler。
+    """
+    root_logger = logging.getLogger()
+    root_logger.setLevel(LOG_LEVEL)
+    
+    # 如果已经配置过，直接返回 logger，避免重复添加 handler 导致日志重复
+    if root_logger.hasHandlers():
+        return logging.getLogger(logger_name)
+
+    formatter = logging.Formatter(LOG_FORMAT, datefmt="%Y-%m-%d %H:%M:%S")
+
+    # 1. Console Handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
+
+    # 2. File Handler
+    if log_to_file:
+        try:
+            file_handler = logging.FileHandler(LOG_FILE, mode='a', encoding='utf-8')
+            file_handler.setFormatter(formatter)
+            root_logger.addHandler(file_handler)
+        except Exception as e:
+            print(f"⚠️ Failed to setup file logging: {e}")
+
     return logging.getLogger(logger_name)
 
 def get_api_key() -> str:
