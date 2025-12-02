@@ -89,7 +89,11 @@ def main():
     )
 
     # 转换为 A2A 服务
-    app = to_a2a(agent, port=settings.SERVICE_PORT)
+    # 关键修复：显式传入 public_url，确保生成的 Agent Card 包含正确的公网地址
+    public_url = os.environ.get("PUBLIC_URL", f"http://{settings.SERVICE_HOST}:{settings.SERVICE_PORT}")
+    logger.info(f"📝 Generating Agent Card with URL: {public_url}")
+    
+    app = to_a2a(agent, port=settings.SERVICE_PORT, url=public_url)
     return app
 
 # 全局 app 对象，供 Gunicorn/Uvicorn 导入使用
@@ -115,7 +119,8 @@ else:
         )
         # 创建 app 对象
         # 注意：Cloud Run 会通过环境变量 PORT 覆盖这里的端口设置，但 to_a2a 需要一个默认值
-        app = to_a2a(agent, port=int(os.environ.get("PORT", settings.SERVICE_PORT)))
+        public_url = os.environ.get("PUBLIC_URL", f"http://0.0.0.0:{os.environ.get('PORT', settings.SERVICE_PORT)}")
+        app = to_a2a(agent, port=int(os.environ.get("PORT", settings.SERVICE_PORT)), url=public_url)
     except Exception as e:
         logger.error(f"Failed to initialize app: {e}")
 
