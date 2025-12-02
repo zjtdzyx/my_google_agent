@@ -42,13 +42,14 @@ class TelemetryPlugin(BasePlugin):
         self, 
         *, 
         tool: BaseTool, 
-        callback_context: CallbackContext, 
-        tool_input: Any, 
-        tool_output: Any,
         **kwargs: Any
     ) -> None:
         """Called after a tool finishes execution."""
         self.metrics["tool_calls"] += 1
+        
+        # 调试信息：如果想知道框架到底传了什么参数，可以取消下面这行的注释
+        # logger.debug(f"🔍 [Telemetry] after_tool_callback received args: {list(kwargs.keys())}")
+        
         # Log tool usage with a distinct icon for visibility
         logger.info(f"🛠️  [Telemetry] Tool '{tool.name}' executed. (Total calls: {self.metrics['tool_calls']})")
 
