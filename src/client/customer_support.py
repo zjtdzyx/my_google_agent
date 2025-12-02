@@ -1,38 +1,22 @@
 import asyncio
-import logging
+import sys
 import os
 import uuid
-import certifi
-from typing import Optional
-from dotenv import load_dotenv
-
-# --- 0. 关键修复：强制设置 SSL 证书路径 ---
-# 这解决了 Windows 下 "FileNotFoundError: [Errno 2] No such file or directory" 的 SSL 问题
-os.environ['SSL_CERT_FILE'] = certifi.where()
-os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
-
-# 加载 .env 文件
-load_dotenv()
-
 import aiohttp
+
+# 添加项目根目录到 sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+
+from config import settings
 from google.adk.agents import LlmAgent
-from google.adk.agents.remote_a2a_agent import RemoteA2aAgent, AGENT_CARD_WELL_KNOWN_PATH
+from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
 from google.adk.models.google_llm import Gemini
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-# --- 1. 配置日志 (Logging Setup) ---
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
-)
-logger = logging.getLogger("CustomerSupportClient")
-
-# --- 2. 配置常量 (Configuration) ---
-REMOTE_SERVICE_URL = "http://localhost:8001"
-AGENT_CARD_URL = f"{REMOTE_SERVICE_URL}{AGENT_CARD_WELL_KNOWN_PATH}"
+# 初始化日志
+logger = settings.setup_logging("CustomerSupportClient")
 
 async def check_remote_service(url: str) -> bool:
     """Health check for the remote A2A service."""
@@ -47,32 +31,29 @@ async def check_remote_service(url: str) -> bool:
                     return False
     except Exception as e:
         logger.error(f"❌ Failed to connect to remote agent: {str(e)}")
-        logger.warning("💡 Hint: Is 'product_catalog_service.py' running in another terminal?")
+        logger.warning("💡 Hint: Is the Product Catalog Service running?")
         return False
 
-# --- 3. 构建客户端 Agent (Agent Construction) ---
 async def run_customer_support_flow(user_query: str):
     """
     Orchestrates the interaction between User -> Support Agent -> Remote Catalog Agent.
     """
-    
     # Step 0: Pre-flight check
-    if not await check_remote_service(AGENT_CARD_URL):
+    if not await check_remote_service(settings.AGENT_CARD_FULL_URL):
         return
 
     # Step 1: Define Remote Agent (The Proxy)
-    # 这是一个“代理”，它负责将请求转发给我们在端口 8001 运行的服务
     remote_catalog_agent = RemoteA2aAgent(
         name="product_catalog_agent",
         description="Remote product catalog service. Use this to look up product details.",
-        agent_card=AGENT_CARD_URL
+        agent_card=settings.AGENT_CARD_FULL_URL
     )
 
     # Step 2: Define Local Support Agent (The Consumer)
     retry_config = types.HttpRetryOptions(attempts=3, exp_base=2, initial_delay=1)
     
     support_agent = LlmAgent(
-        model=Gemini(model="gemini-2.5-flash-lite", retry_options=retry_config),
+        model=Gemini(model=settings.DEFAULT_MODEL_NAME, retry_options=retry_config),
         name="customer_support_agent",
         description="Customer support assistant.",
         instruction="""
@@ -82,7 +63,7 @@ async def run_customer_support_flow(user_query: str):
         3. Do not guess prices or specs.
         4. Answer politely and concisely.
         """,
-        sub_agents=[remote_catalog_agent]  # 关键：将远程 Agent 注册为子 Agent
+        sub_agents=[remote_catalog_agent]
     )
 
     # Step 3: Session & Runner Setup
@@ -91,7 +72,6 @@ async def run_customer_support_flow(user_query: str):
     app_name = "support_cli_app"
     user_id = "cli_user"
 
-    # 创建会话
     await session_service.create_session(
         app_name=app_name, 
         user_id=user_id, 
@@ -106,7 +86,7 @@ async def run_customer_support_flow(user_query: str):
 
     # Step 4: Execution
     logger.info(f"👤 User Query: {user_query}")
-    logger.info("🤖 Support Agent is thinking... (may call remote agent)")
+    logger.info("🤖 Support Agent is thinking...")
     
     try:
         user_msg = types.Content(parts=[types.Part(text=user_query)])
@@ -116,7 +96,6 @@ async def run_customer_support_flow(user_query: str):
             session_id=session_id, 
             new_message=user_msg
         ):
-            # 只处理最终响应，忽略中间的思考过程 (Thought Trace)
             if event.is_final_response() and event.content:
                 response_text = event.content.parts[0].text
                 print("\n" + "="*50)
@@ -126,12 +105,10 @@ async def run_customer_support_flow(user_query: str):
     except Exception as e:
         logger.error(f"Runtime error during agent execution: {e}", exc_info=True)
 
-# --- 4. 入口点 (Entry Point) ---
 if __name__ == "__main__":
-    # 检查 API Key
-    if "GOOGLE_API_KEY" not in os.environ:
-        logger.error("❌ GOOGLE_API_KEY is missing from environment variables.")
-    else:
-        # 示例查询
+    try:
+        settings.get_api_key()
         query = "Hi, do you have the iPhone 15 Pro in stock? And how much is it?"
         asyncio.run(run_customer_support_flow(query))
+    except ValueError as e:
+        logger.error(e)

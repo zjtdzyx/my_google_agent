@@ -1,54 +1,38 @@
 import unittest
-import asyncio
-import logging
-import os
 import sys
-from typing import List
-from dotenv import load_dotenv
+import os
 
-# 加载 .env 文件
-load_dotenv()
+# 添加项目根目录到 sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../")))
 
-# 添加当前目录到路径，以便导入模块
-sys.path.append(os.getcwd())
-
+from config import settings
 from google.adk.agents import LlmAgent
-from google.adk.agents.remote_a2a_agent import RemoteA2aAgent, AGENT_CARD_WELL_KNOWN_PATH
+from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
 from google.adk.models.google_llm import Gemini
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-# --- 配置日志 ---
-logging.basicConfig(level=logging.ERROR) # 测试运行时只显示错误，保持输出整洁
-
 class TestA2AIntegration(unittest.IsolatedAsyncioTestCase):
     """
     集成测试套件：验证 Customer Support Agent 与 Product Catalog Service 的 A2A 交互。
-    
-    前提条件：
-    1. product_catalog_service.py 必须在 localhost:8001 运行。
-    2. GOOGLE_API_KEY 环境变量必须设置。
     """
 
     async def asyncSetUp(self):
         # 1. 检查环境变量
-        if "GOOGLE_API_KEY" not in os.environ:
+        try:
+            settings.get_api_key()
+        except ValueError:
             self.skipTest("GOOGLE_API_KEY not found.")
 
         # 2. 配置 Agent
-        self.remote_url = "http://localhost:8001"
-        self.agent_card_url = f"{self.remote_url}{AGENT_CARD_WELL_KNOWN_PATH}"
-        
-        # 定义远程 Agent
         self.remote_agent = RemoteA2aAgent(
             name="product_catalog_agent",
-            agent_card=self.agent_card_url
+            agent_card=settings.AGENT_CARD_FULL_URL
         )
 
-        # 定义本地 Agent
         self.local_agent = LlmAgent(
-            model=Gemini(model="gemini-2.5-flash-lite"),
+            model=Gemini(model=settings.DEFAULT_MODEL_NAME),
             name="test_support_agent",
             instruction="You are a test agent. Use the product_catalog_agent tool to answer questions.",
             sub_agents=[self.remote_agent]
@@ -93,42 +77,29 @@ class TestA2AIntegration(unittest.IsolatedAsyncioTestCase):
     async def test_01_happy_path_iphone(self):
         """测试用例 1: 正常查询 (Happy Path)"""
         print("\n🧪 Running Test: Query iPhone 15 Pro...")
-        
         response = await self._get_agent_response("Price of iPhone 15 Pro?")
-        
         print(f"   Agent Answer: {response}")
-        
-        # 断言：回答中应包含价格和特定规格
-        self.assertIn("$999", response, "Response should contain the price")
-        self.assertIn("Titanium", response, "Response should contain product details")
+        self.assertIn("$999", response)
+        self.assertIn("Titanium", response)
 
     async def test_02_not_found(self):
         """测试用例 2: 查询不存在的产品 (Error Handling)"""
         print("\n🧪 Running Test: Query Non-existent Product...")
-        
         response = await self._get_agent_response("Do you have the Nokia 3310?")
-        
         print(f"   Agent Answer: {response}")
-        
-        # 断言：回答应表明未找到，并可能列出可用产品
         self.assertTrue(
-            "not found" in response.lower() or "sorry" in response.lower(),
-            "Agent should apologize or state product is not found"
+            "not found" in response.lower() or "sorry" in response.lower()
         )
 
     async def test_03_complex_comparison(self):
         """测试用例 3: 复杂查询 (Multi-step / Comparison)"""
         print("\n🧪 Running Test: Compare two products...")
-        
-        response = await self._get_agent_response("Compare the price of Dell XPS 15 and MacBook Pro 14")
-        
+        response = await self._get_agent_response("Compare the price of Samsung Galaxy S24 and iPhone 15 Pro")
         print(f"   Agent Answer: {response}")
-        
-        # 断言：回答应包含两个产品的价格
-        self.assertIn("1,299", response, "Should mention Dell price")
-        self.assertIn("1,999", response, "Should mention MacBook price")
+        self.assertIn("799", response)
+        self.assertIn("999", response)
 
 if __name__ == "__main__":
     print("🚀 Starting Integration Test Suite...")
-    print("⚠️  Ensure 'product_catalog_service.py' is running on port 8001!")
+    print(f"⚠️  Ensure Service is running at {settings.SERVICE_URL}!")
     unittest.main(verbosity=2)
