@@ -11,7 +11,7 @@ from google.adk.models.google_llm import Gemini
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.adk.memory import InMemoryMemoryService
-from google.adk.tools import load_memory
+from google.adk.tools import load_memory, preload_memory
 from google.genai import types
 
 from config import settings
@@ -73,7 +73,7 @@ async def run_session(
                     print(f"Model > {text}")
                     logger.info(f"Model Response: {text[:50]}...")
 
-async def main():
+async def run_phase_1():
     """
     Phase 1: Infrastructure Setup & Manual Memory Workflow
     """
@@ -178,6 +178,143 @@ async def main():
         "What is my favorite color?", # Agent 应该调用 load_memory 找到答案
         session_id_2
     )
+    
+    return memory_service, session_service
+
+async def run_phase_2(memory_service: InMemoryMemoryService, session_service: InMemorySessionService):
+    """
+    Phase 2: Agent Tool Integration (Reactive vs Proactive)
+    """
+    print("\n🚀 Starting Phase 2: Agent Tool Integration")
+    
+    # --- Scenario: Reactive Agent (load_memory) ---
+    # Agent 只有在觉得需要时才调用工具
+    print("\n🧪 [Test A] Reactive Agent (load_memory)")
+    reactive_agent = LlmAgent(
+        model=Gemini(
+            model=settings.DEFAULT_MODEL_NAME,
+            api_key=settings.get_api_key(),
+            retry_options=retry_config
+        ),
+        name="ReactiveAgent",
+        instruction="Answer user questions. Use load_memory tool ONLY if you need to recall past conversations.",
+        tools=[load_memory]
+    )
+    
+    runner_reactive = Runner(
+        agent=reactive_agent,
+        app_name=APP_NAME,
+        session_service=session_service,
+        memory_service=memory_service
+    )
+    
+    # Test 1: 需要记忆的问题
+    await run_session(runner_reactive, session_service, "What is my favorite color?", "phase2-reactive-1")
+    
+    # Test 2: 不需要记忆的问题 (观察日志，应该没有 Tool Call)
+    await run_session(runner_reactive, session_service, "What is 2 + 2?", "phase2-reactive-2")
+
+    # --- Scenario: Proactive Agent (preload_memory) ---
+    # Agent 每次回答前都会自动搜索记忆
+    print("\n🧪 [Test B] Proactive Agent (preload_memory)")
+    proactive_agent = LlmAgent(
+        model=Gemini(
+            model=settings.DEFAULT_MODEL_NAME,
+            api_key=settings.get_api_key(),
+            retry_options=retry_config
+        ),
+        name="ProactiveAgent",
+        instruction="Answer user questions.",
+        tools=[preload_memory] # <--- 主动预加载记忆
+    )
+    
+    runner_proactive = Runner(
+        agent=proactive_agent,
+        app_name=APP_NAME,
+        session_service=session_service,
+        memory_service=memory_service
+    )
+    
+    # Test 1: 需要记忆的问题
+    await run_session(runner_proactive, session_service, "What is my favorite color?", "phase2-proactive-1")
+    
+    # Test 2: 不需要记忆的问题 (观察日志，preload_memory 仍然会被调用)
+    await run_session(runner_proactive, session_service, "What is the capital of France?", "phase2-proactive-2")
+
+async def auto_save_to_memory(callback_context):
+    """
+    Callback function to automatically save session to memory after each agent turn.
+    Ref: Tutorial Section 6.2
+    """
+    try:
+        # Access services from the context
+        memory_service = callback_context._invocation_context.memory_service
+        session = callback_context._invocation_context.session
+        
+        if memory_service and session:
+            await memory_service.add_session_to_memory(session)
+            logger.info(f"💾 [Callback] Automatically saved session {session.id} to memory.")
+            print(f"💾 [Callback] Auto-saved session {session.id} to memory!")
+    except Exception as e:
+        logger.error(f"❌ [Callback] Failed to save memory: {e}")
+
+async def run_phase_3(memory_service: InMemoryMemoryService, session_service: InMemorySessionService):
+    """
+    Phase 3: Automated Pipeline (Callbacks)
+    """
+    print("\n🚀 Starting Phase 3: Automated Pipeline")
+    
+    # --- Create Agent with Callback ---
+    # 结合了 preload_memory (自动读) 和 after_agent_callback (自动写)
+    print("\n🤖 Creating AutoMemoryAgent...")
+    auto_memory_agent = LlmAgent(
+        model=Gemini(
+            model=settings.DEFAULT_MODEL_NAME,
+            api_key=settings.get_api_key(),
+            retry_options=retry_config
+        ),
+        name="AutoMemoryAgent",
+        instruction="Answer user questions.",
+        tools=[preload_memory], # 自动读
+        after_agent_callback=auto_save_to_memory # 自动写
+    )
+    
+    runner_auto = Runner(
+        agent=auto_memory_agent,
+        app_name=APP_NAME,
+        session_service=session_service,
+        memory_service=memory_service
+    )
+    
+    # Test 1: Tell the agent a new fact (First Conversation)
+    # 期望：Callback 自动触发保存
+    print("\n📝 [Conversation 1] Teaching a new fact (Auto-Save)")
+    await run_session(
+        runner_auto, 
+        session_service,
+        "I gifted a new panda plushie to my nephew on his 1st birthday!", 
+        "phase3-auto-save-1"
+    )
+    
+    # Test 2: Ask about the fact in a NEW session (Second Conversation)
+    # 期望：preload_memory 自动检索到刚才保存的记忆
+    print("\n🔍 [Conversation 2] Verifying Retrieval (New Session)")
+    await run_session(
+        runner_auto, 
+        session_service,
+        "What did I gift my nephew?", 
+        "phase3-auto-save-2"
+    )
+
+async def main():
+    # Run Phase 1 and get populated services
+    mem_service, sess_service = await run_phase_1()
+    
+    # Run Phase 2 using the same services (so memory persists)
+    await run_phase_2(mem_service, sess_service)
+    
+    # Run Phase 3
+    await run_phase_3(mem_service, sess_service)
 
 if __name__ == "__main__":
     asyncio.run(main())
