@@ -4,6 +4,10 @@ import logging
 import os
 import sys
 from typing import List
+from dotenv import load_dotenv
+
+# 加载 .env 文件
+load_dotenv()
 
 # 添加当前目录到路径，以便导入模块
 sys.path.append(os.getcwd())

@@ -1,7 +1,16 @@
 import logging
 import os
 import uvicorn
+import certifi
 from typing import Dict
+from dotenv import load_dotenv
+
+# 设置 SSL 证书
+os.environ['SSL_CERT_FILE'] = certifi.where()
+os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
+
+# 加载 .env 文件
+load_dotenv()
 
 from google.adk.agents import LlmAgent
 from google.adk.a2a.utils.agent_to_a2a import to_a2a

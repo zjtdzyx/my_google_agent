@@ -2,7 +2,17 @@ import asyncio
 import logging
 import os
 import uuid
+import certifi
 from typing import Optional
+from dotenv import load_dotenv
+
+# --- 0. 关键修复：强制设置 SSL 证书路径 ---
+# 这解决了 Windows 下 "FileNotFoundError: [Errno 2] No such file or directory" 的 SSL 问题
+os.environ['SSL_CERT_FILE'] = certifi.where()
+os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
+
+# 加载 .env 文件
+load_dotenv()
 
 import aiohttp
 from google.adk.agents import LlmAgent
