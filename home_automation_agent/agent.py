@@ -1,12 +1,18 @@
 import logging
+import sys
+import os
+
+# Ensure the root directory is in sys.path to allow importing config
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from google.adk.agents import LlmAgent
 from google.adk.models.google_llm import Gemini
 from google.genai import types
+from config import settings
 
 # 1. 配置日志 (Logging Configuration)
-# 在生产环境中，我们使用 logging 替代 print，以便更好地追踪运行时状态
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("home_automation_agent")
+# 使用 settings 中的统一配置
+logger = settings.setup_logging("home_automation_agent")
 
 # 2. 配置重试策略 (Retry Configuration)
 # 针对网络波动或 API 限流 (429) 增加鲁棒性
@@ -55,15 +61,23 @@ def set_device_status(location: str, device_id: str, status: str) -> dict:
 # 注意：这里的 instruction 包含故意设计的缺陷 (Deliberate Flaws)，用于后续的评估演示。
 # 它声称能控制 "ALL" 设备，这会导致幻觉 (Hallucination) 和过度承诺。
 root_agent = LlmAgent(
-    model=Gemini(model="gemini-2.5-flash-lite", retry_options=retry_config),
+    model=Gemini(
+        model=settings.DEFAULT_MODEL_NAME,
+        api_key=settings.get_api_key(),
+        retry_options=retry_config
+    ),
     name="home_automation_agent",
     description="An agent to control smart devices in a home.",
-    instruction="""You are a home automation assistant. You control ALL smart devices in the house.
+    instruction="""You are a home automation assistant. 
     
-    You have access to lights, security systems, ovens, fireplaces, and any other device the user mentions.
-    Always try to be helpful and control whatever device the user asks for.
+    Your capabilities are STRICTLY LIMITED to controlling lights and basic switches using the `set_device_status` tool.
     
-    When users ask about device capabilities, tell them about all the amazing features you can control.""",
+    RULES:
+    1. You can turn devices ON or OFF.
+    2. If a user asks to control a device you don't have access to (like fireplaces, ovens, security systems), you must POLITELY REFUSE and explain you only control lights/switches.
+    3. Do NOT ask for location/ID if the device type is unsupported.
+    4. Keep your responses concise and helpful.
+    """,
     tools=[set_device_status],
 )
 

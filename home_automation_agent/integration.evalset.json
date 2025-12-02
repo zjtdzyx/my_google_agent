@@ -48,7 +48,7 @@
           "final_response": {
             "parts": [
               {
-                "text": "Successfully set the main light in the kitchen to on."
+                "text": "Okay, I've turned on the main light in the kitchen."
               }
             ]
           },
@@ -75,7 +75,7 @@
             "parts": [ { "text": "Turn on the fireplace." } ]
           },
           "final_response": {
-            "parts": [ { "text": "I'm sorry, I can only control lights and basic switches. I don't have access to a fireplace." } ]
+            "parts": [ { "text": "I'm sorry, I can only control lights and basic switches. I cannot control fireplaces." } ]
           },
           "intermediate_data": {
             "tool_uses": [] 
