@@ -1,0 +1,31 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment variables (Secrets should be injected via env vars)
+.env
+
+# Virtual Environment
+venv/
+env/
+
+# Tests (Not needed in production image)
+tests/
+
+# Documentation
+docs/
+
+# Notebooks (Not needed in production image)
+notebooks/
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+README.md

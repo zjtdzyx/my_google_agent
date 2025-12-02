@@ -15,7 +15,16 @@ os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
 # 服务端配置
 SERVICE_HOST = "0.0.0.0"
 SERVICE_PORT = 8001
-SERVICE_URL = f"http://localhost:{SERVICE_PORT}"
+
+# 远程服务地址配置
+# 1. 优先读取环境变量 REMOTE_CATALOG_URL
+# 2. 其次使用部署好的 Cloud Run 地址
+# 3. 最后回退到本地调试地址
+CLOUD_RUN_URL = "https://mygoogleagent-781259129090.us-central1.run.app"
+LOCAL_URL = f"http://localhost:{SERVICE_PORT}"
+
+SERVICE_URL = os.environ.get("REMOTE_CATALOG_URL", CLOUD_RUN_URL)
+
 AGENT_CARD_PATH = "/.well-known/agent-card.json"
 AGENT_CARD_FULL_URL = f"{SERVICE_URL}{AGENT_CARD_PATH}"
 
