@@ -90,9 +90,32 @@ def main():
 
     # 转换为 A2A 服务
     app = to_a2a(agent, port=settings.SERVICE_PORT)
+    return app
 
+# 全局 app 对象，供 Gunicorn/Uvicorn 导入使用
+# 注意：这里我们不再直接调用 uvicorn.run，而是暴露 app 对象
+app = None
+if __name__ == "__main__":
+    # 本地调试模式
+    app = main()
     logger.info(f"📡 Starting A2A Server on port {settings.SERVICE_PORT}...")
     uvicorn.run(app, host=settings.SERVICE_HOST, port=settings.SERVICE_PORT)
+else:
+    # 生产模式 (被 Gunicorn 导入时)
+    # 我们需要在这里初始化 app，但不要调用 uvicorn.run
+    try:
+        settings.get_api_key()
+        # 初始化 Agent
+        agent = LlmAgent(
+            model=Gemini(model=settings.DEFAULT_MODEL_NAME),
+            name="product_catalog_agent",
+            description="External vendor's product catalog service.",
+            instruction="You are the Product Catalog Agent.",
+            tools=[get_product_info]
+        )
+        # 创建 app 对象
+        # 注意：Cloud Run 会通过环境变量 PORT 覆盖这里的端口设置，但 to_a2a 需要一个默认值
+        app = to_a2a(agent, port=int(os.environ.get("PORT", settings.SERVICE_PORT)))
+    except Exception as e:
+        logger.error(f"Failed to initialize app: {e}")
 
-if __name__ == "__main__":
-    main()

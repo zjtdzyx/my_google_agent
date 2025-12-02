@@ -1,0 +1,6 @@
+google-adk[a2a]
+google-genai
+uvicorn
+gunicorn
+python-dotenv
+certifi
