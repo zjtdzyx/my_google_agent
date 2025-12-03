@@ -129,13 +129,28 @@ async def main():
     
     try:
         # 4. 运行并获取结果
-        # run_debug 会打印详细的执行步骤，适合开发阶段
-        response = await runner.run(user_query)
+        # 修复: 使用 run_debug 替代 run，以匹配当前 ADK 版本的 API 签名
+        response = await runner.run_debug(user_query)
         
         print("\n" + "="*50)
         print("🤖 最终执行结果")
         print("="*50)
-        print(response.text)
+        
+        # 修复: run_debug 返回的是一个包含所有步骤的列表 (List[StepResult])
+        # 我们需要提取最后一步的输出，或者直接打印整个对话历史
+        if isinstance(response, list):
+            # 尝试获取最后一条消息的内容
+            last_step = response[-1]
+            # 根据 ADK 版本，结构可能不同，这里做一个防御性编程
+            if hasattr(last_step, 'text'):
+                print(last_step.text)
+            else:
+                # 如果没有 text 属性，直接打印整个对象供调试
+                print(f"Step Result: {last_step}")
+        else:
+            # 如果不是列表，可能是单个对象
+            print(getattr(response, 'text', str(response)))
+            
         print("="*50)
         
     except Exception as e:
