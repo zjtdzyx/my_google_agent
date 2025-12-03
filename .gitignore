@@ -25,6 +25,9 @@ Thumbs.db
 # Logs
 *.log
 
+# books
 notebooks/
+.ipynb
 
+# adk config
 .adk
