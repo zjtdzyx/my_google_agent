@@ -9,7 +9,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from google.adk.agents import Agent, LlmAgent
 from google.adk.models.google_llm import Gemini
 from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
+from google.adk.sessions import InMemorySessionService, DatabaseSessionService
 from google.genai import types
 
 from config import settings
@@ -71,7 +71,7 @@ async def run_session(
                     print(f"Model > {text}")
                     logger.info(f"Model Response: {text[:50]}...")
 
-async def main():
+async def run_phase_1():
     """
     Phase 1: Basic Session Management
     """
@@ -133,6 +133,80 @@ async def main():
         "What is my name?", # Agent 应该已经忘记了
         session_id
     )
+
+async def run_phase_2():
+    """
+    Phase 2: Persistence & Isolation
+    """
+    print("\n🚀 Starting Phase 2: Persistence & Isolation")
+    
+    # --- Step 1: Initialize Database Service ---
+    # 使用 SQLite 进行持久化存储
+    # 注意：SQLAlchemy 的 asyncio 扩展需要使用 aiosqlite 驱动
+    db_url = "sqlite+aiosqlite:///my_agent_data.db"
+    session_service = DatabaseSessionService(db_url=db_url)
+    logger.info(f"✅ Service initialized: DatabaseSessionService ({db_url})")
+    
+    # --- Step 2: Create Agent & Runner ---
+    persistent_agent = LlmAgent(
+        model=Gemini(
+            model=settings.DEFAULT_MODEL_NAME,
+            api_key=settings.get_api_key(),
+            retry_options=retry_config
+        ),
+        name="PersistentBot",
+        description="A chatbot with persistent memory.",
+    )
+    
+    runner = Runner(
+        agent=persistent_agent,
+        app_name=APP_NAME,
+        session_service=session_service
+    )
+    
+    # --- Step 3: Test Persistence (Run 1) ---
+    session_id = "db-session-01"
+    print(f"\n📝 [Conversation 1] Teaching Agent a fact (Session ID: {session_id})")
+    await run_session(
+        runner, 
+        session_service, 
+        ["Hi, I am Sam! What is the capital of United States?", "Hello! What is my name?"], 
+        session_id
+    )
+    
+    # --- Step 4: Simulate Restart & Resume ---
+    print("\n🔄 [Simulation] Restarting Application (Re-initializing Service)...")
+    # 重新初始化 Service，模拟 App 重启
+    # 因为连接的是同一个 SQLite 文件，数据应该还在
+    restarted_session_service = DatabaseSessionService(db_url=db_url)
+    restarted_runner = Runner(
+        agent=persistent_agent,
+        app_name=APP_NAME,
+        session_service=restarted_session_service
+    )
+    
+    print(f"\n📝 [Conversation 2] Testing Persistence after Restart (Session ID: {session_id})")
+    await run_session(
+        restarted_runner, 
+        restarted_session_service, 
+        "What is my name?", # Agent 应该还能记住 "Sam"
+        session_id
+    )
+    
+    # --- Step 5: Verify Isolation ---
+    # 使用一个新的 Session ID，验证数据隔离
+    new_session_id = "db-session-02"
+    print(f"\n📝 [Conversation 3] Testing Session Isolation (Session ID: {new_session_id})")
+    await run_session(
+        restarted_runner, 
+        restarted_session_service, 
+        "What is my name?", # Agent 应该不知道名字
+        new_session_id
+    )
+
+async def main():
+    # await run_phase_1()
+    await run_phase_2()
 
 if __name__ == "__main__":
     asyncio.run(main())
